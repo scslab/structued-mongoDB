@@ -24,8 +24,7 @@
 --
 --
 {-# LANGUAGE TemplateHaskell #-}
-module Database.MongoDB.Structured.Deriving.TH ( deriveStructured
-                                               ) where
+module Database.MongoDB.Structured.Deriving.TH ( deriveStructured ) where
 
 import Database.MongoDB.Structured
 import Language.Haskell.TH
@@ -36,6 +35,11 @@ import Data.Bson
 import qualified Data.Bson as BSON
 import Data.Functor ((<$>))
 import Data.List (isPrefixOf)
+
+--
+import Debug.Trace
+debug x = trace x (return ())
+--
 
 data T1 = T1
 
@@ -52,10 +56,14 @@ deriveStructured t = do
   rt <- reify t
   TyConI (DataD _ _ _ (RecC conName fields:[]) _) <- getFields t
   let fieldNames = map first fields
+      sObjIds = lookForSObjId fields
+
+  guardSObjId sObjIds
+  let sObjName = (first . head) sObjIds
 
   collectionFunD <- funD_collection collectionName conName
-  toBSONFunD     <- funD_toBSON toBSONName fieldNames
-  fromBSONFunD   <- funD_fromBSON fromBSONName conName fieldNames
+  toBSONFunD     <- funD_toBSON toBSONName fieldNames sObjName
+  fromBSONFunD   <- funD_fromBSON fromBSONName conName fieldNames sObjName
   -- Generate Structured instance:
   let structuredInst = InstanceD [] (AppT (ConT className) (ConT t)) 
                          [ collectionFunD
@@ -72,36 +80,54 @@ deriveStructured t = do
               _ -> report True "Unsupported type. Can only derive for\
                                \ single-constructor record types."
             return r
+          lookForSObjId = filter f
+            where f (_,_,(ConT n)) = (n == ''SObjId)
+                  f _ = False
+          guardSObjId ids = if length ids /= 1
+                              then report True "Expecting 1 SObjId field."
+                              else return ()
           first (a,_,_) = a
 
 -- | Generate the declaration for 'toBSON'.
 --
 -- Suppose we have
 --
--- >  data User = User { userId :: Int
+-- >  data User = User { userId        :: SObjId
 -- >                   , userFirstName :: String
--- >                   , userLastName :: String
+-- >                   , userLastName  :: String
 -- >                   }
 --
 -- This function generates:
 --
--- >  toBSON x = [ (u "userId")        := val (userId x)
+-- >  toBSON x = [ (u "_id")           := val (userId x)
 -- >             , (u "userFirstName") := val (userFirstName x)
 -- >             , (u "userLastName")  := val (userLastName x)
 -- >             ]
+--
+-- The "_id" is created only if userId is not 'noSObjId'.
 -- 
 funD_toBSON :: Name     -- ^ toSBSON Name
             -> [Name]   -- ^ List of field Names
+            -> Name     -- ^ SObjId Name
             -> Q Dec    -- ^ toBSON declaration
-funD_toBSON toBSONName fieldNames = do
+funD_toBSON toBSONName fieldNames sObjName = do
   x <- newName "x"
   toBSONBody <- NormalB <$> (gen_toBSON (varE x) fieldNames)
   let toBSONClause = Clause [VarP x] (toBSONBody) []
   return (FunD toBSONName [toBSONClause])
     where gen_toBSON x []     = [| [] |]
-          gen_toBSON x (f:fs) = let l = nameBase f 
-                                    v = appE (varE f) x
-                                in [| ((u l) := val $v) : $(gen_toBSON x fs) |]
+          gen_toBSON x (f:fs) =
+            let l = nameBase f 
+                i = nameBase sObjName
+                v = appE (varE f) x
+             in if l /= i
+                  then [| ((u l) := val $v) : $(gen_toBSON x fs) |]
+                  else [| let y  = ((u "_id") := val (unSObjId $v))
+                              ys = $(gen_toBSON x fs)
+                          in if isNoSObjId $v
+                               then ys
+                               else y : ys
+                       |]
 
 -- | Generate the declaration for 'collection'
 funD_collection :: Name    -- ^ collection Name
@@ -117,49 +143,63 @@ funD_collection collectionName conName = do
 funD_fromBSON :: Name     -- ^ fromSBSON Name
               -> Name     -- ^ Name of type constructor
               -> [Name]   -- ^ List of field Names
+              -> Name     -- ^ SObjId name
               -> Q Dec    -- ^ fromBSON declaration
-funD_fromBSON fromBSONName conName fieldNames = do
+funD_fromBSON fromBSONName conName fieldNames sObjName = do
   doc <- newName "doc"
-  fromBSONBody <- NormalB <$> (gen_fromBSON conName fieldNames (varE doc) [])
+  fromBSONBody <- NormalB <$>
+                    (gen_fromBSON conName fieldNames (varE doc) [] sObjName)
   let fromBSONClause = Clause [VarP doc] (fromBSONBody) []
   return (FunD fromBSONName [fromBSONClause])
 
 -- | This function generates the body for the 'fromBSON' function
 -- Suppose we have
 --
--- >  data User = User { userId :: Int
+-- >  data User = User { userId        :: SObjId
 -- >                   , userFirstName :: String
--- >                   , userLastName :: String
+-- >                   , userLastName  :: String
 -- >                   }
 --
 -- Given the constructor name (@User@), field names, a document
 -- expression (e.g., @doc@), and empty accumulator, this function generates:
 --
--- >  fromBSON doc = lookup (u "profileId")       doc >>= \val_1 ->
--- >                 lookup (u "profileName")     doc >>= \val_2 ->
--- >                 lookup (u "profileUser")     doc >>= \val_3 ->
--- >                 lookup (u "profileKeywords") doc >>= \val_4 ->
--- >                 return Profile { profileId       = val_1
--- >                                , profileName     = val_2
--- >                                , profileUser     = val_3
--- >                                , profileKeywords = val_4
--- >                                }
+-- >  fromBSON doc = lookup (u "_id")             doc >>= \val_1 ->
+-- >                 lookup (u "userFirstName")   doc >>= \val_2 ->
+-- >                 lookup (u "userLastName")    doc >>= \val_3 ->
+-- >                 return User { userId        = val_1
+-- >                             , userFirstName = val_2
+-- >                             , userLastname  = val_3
+-- >                             }
 --
 --
+
+-- | BSON's lookup with Maybe as underlying monad.
+lookup_m :: Val v => Label -> Document -> Maybe v
+lookup_m = BSON.lookup
+
+-- | Lookup _id. If not found, do not fail. Rather return 'noSObjId'.
+lookup_id :: Document -> Maybe SObjId
+lookup_id d = Just (SObjId (lookup_m (u "_id") d :: Maybe ObjectId))
+
+
 gen_fromBSON :: Name            -- ^ Constructor name
              -> [Name]          -- ^ Field names
              -> Q Exp           -- ^ Document expression
              -> [(Name, Name)]  -- ^ Record field name, variable name pairs
+             -> Name            -- ^ SObjId name
              -> Q Exp           -- ^ Record with fields set
-gen_fromBSON conName []     _   vals = do
+gen_fromBSON conName []     _   vals sObjName = do
   (AppE ret _ )  <- [| return () |]
-  let fieldExp = reverse $ map (\(l,v) -> (l,VarE v)) vals
+  let fieldExp = reverse $ map (\(l,v) -> (l, VarE v)) vals
   return (AppE ret (RecConE conName fieldExp))
-gen_fromBSON conName (l:ls) doc vals =
+
+gen_fromBSON conName (l:ls) doc vals sObjName =
   let lbl = nameBase l
-  in [| BSON.lookup (u lbl) $doc >>= \val ->
-        $(gen_fromBSON conName ls doc ((l,'val):vals) )
-     |]
+  in if lbl == (nameBase sObjName)
+      then [| lookup_id $doc >>= \val ->
+              $(gen_fromBSON conName ls doc ((l,'val):vals) sObjName) |]
+      else [| lookup_m (u lbl) $doc >>= \val ->
+              $(gen_fromBSON conName ls doc ((l,'val):vals) sObjName) |]
 
 -- | Given name of type, generate instance for BSON's @Val@ class.
 gen_ValInstance :: Name -> Q Dec

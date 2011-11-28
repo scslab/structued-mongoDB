@@ -10,12 +10,14 @@ import Database.MongoDB.Structured
 import Database.MongoDB.Structured.Deriving.TH
 import Database.MongoDB.Structured.Query
 
-data Location = Location { city   :: String
+data Location = Location { locId  :: SObjId
+                         , city   :: String
                          , state  :: String
                          } deriving(Show, Read, Eq, Ord, Typeable)
 $(deriveStructured ''Location)
 
-data Team = Team { name   :: String
+data Team = Team { teamId :: SObjId
+                 , name   :: String
                  , home   :: Location
                  , league :: String
                  } deriving(Show, Read, Eq, Ord, Typeable)
@@ -25,11 +27,13 @@ $(deriveStructured ''Team)
 clearTeams = delete (select [] (u "Team"))
 
 insertTeams = insertMany [
-  Team { name   = "Yankees"
-       , home   = Location { city = "New York", state = "NY" }
+  Team { teamId = noSObjId
+       , name   = "Yankees"
+       , home   = Location { locId = noSObjId, city = "New York", state = "NY" }
        , league = "Nation" },
-  Team { name   = "Mets"
-       , home   = Location { city = "New York", state = "NY" }
+  Team { teamId = noSObjId
+       , name   = "Mets"
+       , home   = Location { locId = noSObjId, city = "New York", state = "NY" }
        , league = "Nation" }
   ]
 
@@ -37,7 +41,10 @@ findTeams = find (select [] (u "Team")) >>= rest
 
 printDocs title docs = liftIO $ do
   putStrLn title
-  mapM_ (print .  exclude [(u "_id")]) docs
+  let f :: Document -> Maybe Team
+      f = fromBSON
+  mapM_ (print) docs
+  mapM_ (print . f) docs
 
 run = do
    clearTeams
@@ -50,3 +57,9 @@ main = do
    e <- access pipe master (u "baseball") run
    close pipe
    print e
+
+fun = 
+  Team { teamId = noSObjId
+       , name   = "Yankees"
+       , home   = Location { locId = noSObjId, city = "New York", state = "NY" }
+       , league = "Nation" }
