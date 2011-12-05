@@ -18,8 +18,14 @@ module Database.MongoDB.Structured.Query (
                                          , save
                                          -- * Delete
                                          , delete, deleteOne
+                                         -- * Order
+                                         , asc
+                                         , desc
                                          -- * Query
                                          , StructuredQuery
+                                         , limit
+                                         , skip
+                                         , sort
                                          , find
                                          , findOne
                                          , fetch
@@ -46,6 +52,7 @@ import Database.MongoDB.Internal.Util
 import Data.Bson
 import Data.List (sortBy, groupBy)
 import Data.Functor
+import Data.Word
 import Control.Monad
 import Control.Monad.MVar
 import Control.Monad.IO.Class
@@ -197,8 +204,14 @@ newtype StructuredSelection =
   deriving(Eq, Show)
 
 -- | Wrapper for @mongoDB@'s @Query@ type.
-newtype StructuredQuery = StructuredQuery { unStructuredQuery :: M.Query }
+data StructuredQuery = StructuredQuery
+                            { selection :: StructuredSelection
+                            , skip :: Word32
+                            , limit :: Word32
+                            , sort :: [OrderExp]
+                            }
   deriving(Eq, Show)
+
 
 -- | Analog to @mongoDB@'s @Select@ class
 class StructuredSelect aQorS where
@@ -209,16 +222,17 @@ instance StructuredSelect StructuredSelection where
   select = StructuredSelection . expToSelection
 
 instance StructuredSelect StructuredQuery where
-  select = query 
+  select s = StructuredQuery (StructuredSelection $ expToSelection s)
+                              0 0 ([])
 
--- | From @mongoDB@:
--- Selects documents in collection that match selector. It uses 
--- no query options, projects all fields, does not skip any documents,
--- does not limit result size, uses default batch size, does not
--- sort, does not hint, and does not snapshot.
-query :: Structured a => QueryExp a -> StructuredQuery
-query e = StructuredQuery $ query' (expToSelection e)
-  where query' s = M.Query [] s [] 0 0 [] False 0 []
+unStructuredQuery :: StructuredQuery -> M.Query
+unStructuredQuery sq = M.Query [] -- options
+                               (unStructuredSelection $ selection sq)
+                               [] -- project
+                               (skip sq) -- skip
+                               (limit sq) -- limit
+                               (expToOrder $ sort sq) -- sort
+                               False 0 []
 
 class Val t => Selectable a f t | f -> a, f -> t where
   -- | Given facet, return the BSON field name
@@ -294,4 +308,23 @@ expToSelection e = M.Select { M.selector = (expToSelector e)
                             , M.coll = (collection . c $ e) }
   where c :: Structured a => QueryExp a -> a
         c _ = undefined
+
+-- | An ordering expression
+data OrderExp = Desc Label
+              | Asc Label
+  deriving(Eq, Show)
+
+-- | Sort by field, ascending
+asc :: Selectable a f t => f -> OrderExp
+asc f = Asc (s f undefined)
+
+-- | Sort by field, descending
+desc :: Selectable a f t => f -> OrderExp
+desc f = Desc (s f undefined)
+
+-- | Convert a list of @OrderExp] to a @mongoDB@ @Order@
+expToOrder :: [OrderExp] -> M.Order
+expToOrder exps = map _expToLabel exps
+  where _expToLabel (Desc fieldName) = fieldName := val (-1 :: Int)
+        _expToLabel (Asc fieldName) = fieldName := val (1 :: Int)
 

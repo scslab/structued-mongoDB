@@ -46,7 +46,10 @@ insertUsers = insertMany
 run = do
    delete (select ( (.*) :: QueryExp User))
    insertUsers
-   let query = select (FirstName .== "deian" .|| FavNr .>= 3)
+   let query = (select (FirstName .== "deian" .|| FavNr .>= 3))
+                  { limit = 2
+                  , sort = [asc FirstName]
+                  , skip = 1 }
    liftIO $ print query
    users <- find query >>= rest
    liftIO $ printFunc users
