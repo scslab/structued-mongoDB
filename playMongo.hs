@@ -43,7 +43,6 @@ printDocs title docs = liftIO $ do
   putStrLn title
   let f :: Document -> Maybe Team
       f = fromBSON
-  mapM_ (print) docs
   mapM_ (print . f) docs
 
 run = do
