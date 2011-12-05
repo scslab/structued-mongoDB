@@ -23,14 +23,17 @@
 --
 --
 --
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Database.MongoDB.Structured.Deriving.TH ( deriveStructured ) where
+module Database.MongoDB.Structured.Deriving.TH where --( deriveStructured ) where
 
+import Database.MongoDB.Structured.Query
 import Database.MongoDB.Structured
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax
 import Control.Monad
 import Database.MongoDB.Query (Collection)
+import Data.Char (toUpper)
 import Data.Bson
 import qualified Data.Bson as BSON
 import Data.Functor ((<$>))
@@ -42,6 +45,8 @@ debug x = trace x (return ())
 --
 
 data T1 = T1
+data T2 = T2
+data T3 = T3
 
 -- | This function generates 'Structured' and @Val@ instances for
 -- record types.
@@ -64,6 +69,9 @@ deriveStructured t = do
   collectionFunD <- funD_collection collectionName conName
   toBSONFunD     <- funD_toBSON toBSONName fieldNames sObjName
   fromBSONFunD   <- funD_fromBSON fromBSONName conName fieldNames sObjName
+  
+  selTypesAndInst <- genSelectable t fields
+
   -- Generate Structured instance:
   let structuredInst = InstanceD [] (AppT (ConT className) (ConT t)) 
                          [ collectionFunD
@@ -72,7 +80,7 @@ deriveStructured t = do
   -- Generate Val instance:
   valInst <- gen_ValInstance t
 
-  return [structuredInst, valInst]
+  return $ [structuredInst, valInst] ++ selTypesAndInst
     where getFields t = do
             r <- reify t
             case r of
@@ -217,3 +225,38 @@ gen_ValInstance t = do
     where fixNames aN (FunD n cs) | (nameBase aN)
                                       `isPrefixOf` (nameBase n) = FunD aN cs
           fixNames _  x = x 
+
+-- | Given name of type, and fields, generate new type corrsponding to
+-- each field and make them instances of @Selectable@.
+genSelectable :: Name -> [VarStrictType] -> Q [Dec]
+genSelectable conName vs = concat <$> (mapM (genSelectable' conName) vs)
+
+-- | Given name of type, and field, generate new type corrsponding to
+-- the field and make it an instance of @Selectable@.
+genSelectable' :: Name -> VarStrictType -> Q [Dec]
+genSelectable' conName (n,_,t) = do
+  let bn = mkName . cap $ nameBase n
+      sName = mkName "s"
+  -- New type for field:
+  [DataD _ _ _ _ derivs] <- [d| data Constr = Constr deriving (Eq, Show) |]
+  let dataType = DataD [] bn [] [NormalC bn []] derivs
+  -- Instance of Selectable:
+  [InstanceD selCtx (AppT (AppT (AppT selT _) _) _)
+                    [FunD _ [Clause pats (NormalB (AppE varE_u _)) []]]]
+     <-  [d| instance Selectable T1 T2 T3 where
+               s _ _ = (u "")
+         |]
+  let lit = LitE .  StringL $ if is_id t then "_id" else nameBase n
+      selInstance = 
+        InstanceD selCtx (AppT (AppT (AppT selT (ConT conName)) (ConT bn)) t)
+            [FunD sName
+                   [Clause pats
+                     (NormalB (AppE varE_u lit)) []
+                   ]
+            ]
+  --
+  return [dataType, selInstance]
+    where cap (c:cs) = toUpper c : cs
+          is_id (ConT n) = (n == ''SObjId)
+
+
