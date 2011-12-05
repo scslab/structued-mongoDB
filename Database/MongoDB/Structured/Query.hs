@@ -1,21 +1,59 @@
+{-|
+
+  This module exports several classes and combinators that operated on
+  'Structured' types. Specifically, we provide the structured versions
+  of @mongoDB@'s combinators, including structured query creation.
+
+-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 module Database.MongoDB.Structured.Query (
                                           -- * Insert
                                            insert, insert_
                                          , insertMany, insertMany_
                                          , insertAll, insertAll_
+                                         -- * Update
+                                         , save
+                                         -- * Delete
+                                         , delete, deleteOne
+                                         -- * Query
+                                         , StructuredQuery
+                                         , find
+                                         , findOne
+                                         , fetch
+                                         , count
+                                         -- * Structured selections/queries
+                                         , StructuredSelection
+                                         , StructuredSelect(select)
+                                         , Selectable(..), QueryExp
+                                         , (.*)
+                                         , (.==), (./=), (.<), (.<=), (.>), (.>=)
+                                         , (.&&), (.||), not_
+                                         -- * Cursor
+                                         , StructuredCursor
+                                         , closeCursor, isCursorClosed
+                                         , nextBatch, next, nextN, rest
+                                         -- * Rexports
                                          , module Database.MongoDB.Query
                                          ) where
 
 import qualified Database.MongoDB.Query as M
-import Database.MongoDB.Query hiding ( insert, insert_
-                                     , insertMany, insertMany_
-                                     , insertAll, insertAll_)
+import Database.MongoDB.Query (Action(..), access, master)
 import Database.MongoDB.Structured
 import Database.MongoDB.Internal.Util
 import Data.Bson
 import Data.List (sortBy, groupBy)
 import Data.Functor
 import Control.Monad
+import Control.Monad.MVar
+import Control.Monad.IO.Class
+
+
+--
+-- Insert
+--
 
 -- | Inserts document to its corresponding collection and return
 -- the \"_id\" value.
@@ -48,7 +86,7 @@ insertAll_ ss = insertAll ss >> return ()
 -- | Helper function that carries out the hard work for 'insertMany'
 -- and 'insertAll'.
 insertManyOrAll :: (MonadIO' m, Structured a) =>
-   (Collection -> [Document] -> Action m [Value]) -> [a] -> Action m [Value]
+   (M.Collection -> [Document] -> Action m [Value]) -> [a] -> Action m [Value]
 insertManyOrAll insertFunc ss = do
   let docs  = map (\s -> (collection s, toBSON s)) ss
       gdocs = (groupBy (\(a,_) (b,_) -> a == b))
@@ -58,3 +96,202 @@ insertManyOrAll insertFunc ss = do
                   then return []
                   else insertFunc (fst . head $ ds) (map snd ds)
              )
+
+--
+-- Update
+--
+
+-- | Save document to collection. If the 'SObjId' field is set then
+-- the document is updated, otherwise we perform an insert.
+save :: (MonadIO' m, Structured a) => a -> Action m ()
+save s = M.save (collection s) (toBSON s)
+
+
+--
+-- Delete
+--
+
+-- | Delete all documents that match the selection/query.
+delete :: MonadIO m => StructuredSelection -> Action m ()
+delete = M.delete . unStructuredSelection 
+
+-- | Delete the first documents that match the selection/query.
+deleteOne :: MonadIO m => StructuredSelection -> Action m ()
+deleteOne = M.deleteOne . unStructuredSelection 
+
+
+--
+-- Query
+--
+
+-- | Find documents satisfying query
+find :: (MonadControlIO m, Functor m)
+     => StructuredQuery -> Action m StructuredCursor
+find q = StructuredCursor <$> (M.find . unStructuredQuery $ q)
+
+-- | Find documents satisfying query
+findOne :: (MonadIO m, Structured a)
+     => StructuredQuery -> Action m (Maybe a)
+findOne q = do 
+  res <- M.findOne . unStructuredQuery $ q
+  return $ res >>= fromBSON
+
+-- | Same as 'findOne' but throws 'DocNotFound' if none match.
+fetch :: (MonadIO m, Functor m, Structured a)
+     => StructuredQuery -> Action m (Maybe a)
+fetch q = fromBSON <$> (M.fetch . unStructuredQuery $ q)
+
+-- | Count number of documents satisfying query.
+count :: (MonadIO' m) => StructuredQuery -> Action m Int
+count = M.count . unStructuredQuery
+
+
+--
+--
+--
+
+-- | Wrapper for @mongoDB@'s @Cursor@.
+newtype StructuredCursor = StructuredCursor { unStructuredCursor :: M.Cursor }
+
+-- | Return next batch of structured documents.
+nextBatch :: (Structured a, MonadControlIO m, Functor m)
+          => StructuredCursor -> Action m [Maybe a]
+nextBatch c = (map fromBSON) <$> M.nextBatch (unStructuredCursor c)
+
+-- | Return next structured document. If failed return 'Left',
+-- otherwise 'Right' of the deserialized result.
+next :: (Structured a, MonadControlIO m)
+     => StructuredCursor -> Action m (Either () (Maybe a))
+next c = do
+    res <- M.next (unStructuredCursor c)
+    case res of
+      Nothing -> return (Left ())
+      Just r  -> return (Right $ fromBSON r)
+
+-- | Return up to next @N@ documents.
+nextN :: (Structured a, MonadControlIO m, Functor m)
+      => Int -> StructuredCursor -> Action m [Maybe a]
+nextN n c = (map fromBSON) <$> M.nextN n (unStructuredCursor c)
+
+
+-- | Return the remaining documents in query result.
+rest :: (Structured a, MonadControlIO m, Functor m)
+     => StructuredCursor -> Action m [Maybe a]
+rest c = (map fromBSON) <$> M.rest (unStructuredCursor c)
+
+closeCursor :: MonadControlIO m => StructuredCursor -> Action m ()
+closeCursor = M.closeCursor . unStructuredCursor
+
+isCursorClosed :: MonadIO m => StructuredCursor -> Action m Bool
+isCursorClosed = M.isCursorClosed . unStructuredCursor
+
+
+
+--
+-- Structured selections/queries
+--
+
+-- | Wrapper for @mongoDB@'s @Selection@ type.
+newtype StructuredSelection =
+  StructuredSelection { unStructuredSelection :: M.Selection }
+  deriving(Eq, Show)
+
+-- | Wrapper for @mongoDB@'s @Query@ type.
+newtype StructuredQuery = StructuredQuery { unStructuredQuery :: M.Query }
+  deriving(Eq, Show)
+
+-- | Analog to @mongoDB@'s @Select@ class
+class StructuredSelect aQorS where
+  -- | Create a selection or query from an expression
+  select :: Structured a => QueryExp a -> aQorS
+
+instance StructuredSelect StructuredSelection where
+  select = StructuredSelection . expToSelection
+
+instance StructuredSelect StructuredQuery where
+  select = query 
+
+-- | From @mongoDB@:
+-- Selects documents in collection that match selector. It uses 
+-- no query options, projects all fields, does not skip any documents,
+-- does not limit result size, uses default batch size, does not
+-- sort, does not hint, and does not snapshot.
+query :: Structured a => QueryExp a -> StructuredQuery
+query e = StructuredQuery $ query' (expToSelection e)
+  where query' s = M.Query [] s [] 0 0 [] False 0 []
+
+class Val t => Selectable a f t | f -> a, f -> t where
+  -- | Given facet, return the BSON field name
+  s :: f -> t -> Label
+
+-- | A query expression.
+data QueryExp a = StarExp
+                | EqExp   !Label   !Value
+                | LBinExp !UString !Label !Value
+                | AndExp  (QueryExp a) (QueryExp a) 
+                | OrExp   (QueryExp a) (QueryExp a) 
+                | NotExp  (QueryExp a)
+                deriving (Eq, Show)
+
+infix   4 .==, ./=, .<, .<=, .>, .>=
+infixr  3 .&&
+infixr  2 .||
+
+-- | Combinator for @==@
+(.*) :: (Structured a) => QueryExp a
+(.*) = StarExp
+
+-- | Combinator for @==@
+(.==) :: (Val t, Selectable a f t) => f -> t -> QueryExp a
+(.==) f v = EqExp  (s f v) (val v)
+
+-- | Combinator for @$ne@
+(./=) :: (Val t, Selectable a f t) => f -> t -> QueryExp a
+(./=) f v = LBinExp (u "$ne") (s f v) (val v)
+
+-- | Combinator for @<@
+(.< ) :: (Val t, Selectable a f t) => f -> t -> QueryExp a
+(.< ) f v = LBinExp (u "$lt") (s f v) (val v)
+
+-- | Combinator for @<=@
+(.<=) :: (Val t, Selectable a f t) => f -> t -> QueryExp a
+(.<=) f v = LBinExp (u "$lte") (s f v) (val v)
+
+-- | Combinator for @>@
+(.> ) :: (Val t, Selectable a f t) => f -> t -> QueryExp a
+(.> ) f v = LBinExp (u "$gt") (s f v) (val v)
+
+-- | Combinator for @>=@
+(.>=) :: (Val t, Selectable a f t) => f -> t -> QueryExp a
+(.>=) f v = LBinExp (u "$gte") (s f v) (val v)
+
+-- | Combinator for @$and@
+(.&&) :: QueryExp a -> QueryExp a -> QueryExp a
+(.&&) = AndExp
+
+-- | Combinator for @$or@
+(.||) :: QueryExp a -> QueryExp a -> QueryExp a
+(.||) = OrExp
+
+-- | Combinator for @$not@
+not_ :: QueryExp a -> QueryExp a
+not_ = NotExp
+
+-- | Convert a query expression to a 'Selector'.
+expToSelector :: Structured a => QueryExp a -> M.Selector
+expToSelector (StarExp)        = [ ]
+expToSelector (EqExp l v)      = [ l := v ]
+expToSelector (LBinExp op l v) = [ l =: [ op := v ]]
+expToSelector (AndExp e1 e2)   = [ (u "$and") =: [expToSelector e1
+                                                 , expToSelector e2] ]
+expToSelector (OrExp e1 e2)    = [ (u "$or") =: [expToSelector e1
+                                                , expToSelector e2] ]
+expToSelector (NotExp e)       = [ (u "$not") =: expToSelector e]
+
+-- | Convert query expression to 'Selection'.
+expToSelection :: Structured a => QueryExp a -> M.Selection
+expToSelection e = M.Select { M.selector = (expToSelector e)
+                            , M.coll = (collection . c $ e) }
+  where c :: Structured a => QueryExp a -> a
+        c _ = undefined
+
