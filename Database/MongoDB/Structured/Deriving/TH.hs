@@ -25,7 +25,7 @@
 --
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Database.MongoDB.Structured.Deriving.TH where --( deriveStructured ) where
+module Database.MongoDB.Structured.Deriving.TH ( deriveStructured ) where
 
 import Database.MongoDB.Structured.Query
 import Database.MongoDB.Structured
