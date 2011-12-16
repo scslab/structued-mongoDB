@@ -17,11 +17,17 @@ import Database.MongoDB.Structured
 import Database.MongoDB.Structured.Deriving.TH
 import Database.MongoDB.Structured.Query
 
+data Address = Address { addrId :: SObjId
+                       , streetNr :: Int
+                       , streetName :: String
+                       } deriving (Show, Read, Eq, Ord, Typeable)
+$(deriveStructured ''Address)
 
 data User = User { userId    :: SObjId
                  , firstName :: String
                  , lastName  :: String
                  , favNr     :: Int
+                 , addr      :: Address
                  } deriving(Show, Read, Eq, Ord, Typeable)
 $(deriveStructured ''User)
 
@@ -30,17 +36,29 @@ insertUsers = insertMany
   [ User { userId = noSObjId
          , firstName = "deian"
          , lastName = "stefan"
-         , favNr = 3 }
+         , favNr = 3
+         , addr = Address { addrId = noSObjId
+                          , streetNr = 123
+                          , streetName = "Mission" }
+         }
   
   , User { userId = noSObjId
          , firstName = "amit" 
          , lastName = "levy"
-         , favNr = 42 }
+         , favNr = 42 
+         , addr = Address { addrId = noSObjId
+                          , streetNr = 42
+                          , streetName = "Market" }
+         }
   
   , User { userId = noSObjId
          , firstName = "david"
          , lastName = "mazieres"
-         , favNr = 1337 }
+         , favNr = 1337 
+         , addr = Address { addrId = noSObjId
+                          , streetNr = 821
+                          , streetName = "Valencia" }
+         }
   ]
 
 run = do
