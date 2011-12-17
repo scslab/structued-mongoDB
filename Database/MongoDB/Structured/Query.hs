@@ -49,7 +49,7 @@ module Database.MongoDB.Structured.Query (
                                          ) where
 
 import qualified Database.MongoDB.Query as M
-import Database.MongoDB.Query (Action(..), access, master)
+import Database.MongoDB.Query (Action, access, master)
 import Database.MongoDB.Structured
 import Database.MongoDB.Internal.Util
 import Data.Bson
@@ -69,11 +69,11 @@ import Control.Monad.IO.Class
 -- | Inserts document to its corresponding collection and return
 -- the \"_id\" value.
 insert :: (MonadIO' m, Structured a) => a -> Action m Value
-insert s = M.insert (collection s) (toBSON s)
+insert x = M.insert (collection x) (toBSON x)
 
 -- | Same as 'insert' but discarding result.
 insert_ :: (MonadIO' m, Structured a) => a -> Action m ()
-insert_ s = insert s >> return ()
+insert_ x = insert x >> return ()
 
 -- | Inserts documents to their corresponding collection and return
 -- their \"_id\" values.
@@ -99,7 +99,7 @@ insertAll_ ss = insertAll ss >> return ()
 insertManyOrAll :: (MonadIO' m, Structured a) =>
    (M.Collection -> [Document] -> Action m [Value]) -> [a] -> Action m [Value]
 insertManyOrAll insertFunc ss = do
-  let docs  = map (\s -> (collection s, toBSON s)) ss
+  let docs  = map (\x -> (collection x, toBSON x)) ss
       gdocs = (groupBy (\(a,_) (b,_) -> a == b))
               . (sortBy (\(a,_) (b,_) -> compare a b)) $ docs
   concat <$> (forM gdocs $ \ds ->
@@ -115,7 +115,7 @@ insertManyOrAll insertFunc ss = do
 -- | Save document to collection. If the 'SObjId' field is set then
 -- the document is updated, otherwise we perform an insert.
 save :: (MonadIO' m, Structured a) => a -> Action m ()
-save s = M.save (collection s) (toBSON s)
+save x = M.save (collection x) (toBSON x)
 
 
 --
@@ -226,7 +226,7 @@ instance StructuredSelect StructuredSelection where
   select = StructuredSelection . expToSelection
 
 instance StructuredSelect StructuredQuery where
-  select s = StructuredQuery (StructuredSelection $ expToSelection s)
+  select x = StructuredQuery (StructuredSelection $ expToSelection x)
                               0 0 ([])
 
 unStructuredQuery :: StructuredQuery -> M.Query

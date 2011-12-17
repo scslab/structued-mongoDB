@@ -1,0 +1,10 @@
+*.hi
+*.o
+*.swp
+*~
+/tmp
+/Setup
+/dist
+/doc
+/ls
+/ps

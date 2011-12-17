@@ -32,7 +32,7 @@ import Database.MongoDB.Structured
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax
 import Control.Monad
-import Database.MongoDB.Query (Collection)
+--import Database.MongoDB.Query (Collection)
 import Data.Char (toUpper)
 import Data.Bson
 import qualified Data.Bson as BSON
@@ -40,8 +40,8 @@ import Data.Functor ((<$>))
 import Data.List (isPrefixOf)
 
 --
-import Debug.Trace
-debug x = trace x (return ())
+--import Debug.Trace
+--debug x = trace x (return ())
 --
 
 data T1 = T1
@@ -58,7 +58,6 @@ deriveStructured t = do
   let fromBSONName   = 'fromBSON
 
   -- Get record fields:
-  rt <- reify t
   TyConI (DataD _ _ _ (RecC conName fields:[]) _) <- getFields t
   let fieldNames = map first fields
       sObjIds = lookForSObjId fields
@@ -81,8 +80,8 @@ deriveStructured t = do
   valInst <- gen_ValInstance t
 
   return $ [structuredInst, valInst] ++ selTypesAndInst
-    where getFields t = do
-            r <- reify t
+    where getFields t1 = do
+            r <- reify t1
             case r of
               TyConI (DataD _ _ _ (RecC _ _:[]) _) -> return ()
               _ -> report True "Unsupported type. Can only derive for\
@@ -123,7 +122,7 @@ funD_toBSON toBSONName fieldNames sObjName = do
   toBSONBody <- NormalB <$> (gen_toBSON (varE x) fieldNames)
   let toBSONClause = Clause [VarP x] (toBSONBody) []
   return (FunD toBSONName [toBSONClause])
-    where gen_toBSON x []     = [| [] |]
+    where gen_toBSON _ []     = [| [] |]
           gen_toBSON x (f:fs) =
             let l = nameBase f 
                 i = nameBase sObjName
@@ -142,7 +141,6 @@ funD_collection :: Name    -- ^ collection Name
                 -> Name    -- ^ Name of type constructor
                 -> Q Dec   -- ^ collection delclaration
 funD_collection collectionName conName = do
-  x <- newName "x"
   let n = nameBase conName
   d <- [d| collectionName _ = (u n) |]
   let [FunD _ cs] = d
@@ -196,18 +194,18 @@ gen_fromBSON :: Name            -- ^ Constructor name
              -> [(Name, Name)]  -- ^ Record field name, variable name pairs
              -> Name            -- ^ SObjId name
              -> Q Exp           -- ^ Record with fields set
-gen_fromBSON conName []     _   vals sObjName = do
+gen_fromBSON conName []     _   vals _ = do
   (AppE ret _ )  <- [| return () |]
-  let fieldExp = reverse $ map (\(l,v) -> (l, VarE v)) vals
-  return (AppE ret (RecConE conName fieldExp))
+  let fExp = reverse $ map (\(l,v) -> (l, VarE v)) vals
+  return (AppE ret (RecConE conName fExp))
 
 gen_fromBSON conName (l:ls) doc vals sObjName =
   let lbl = nameBase l
   in if lbl == (nameBase sObjName)
-      then [| lookup_id $doc >>= \val ->
-              $(gen_fromBSON conName ls doc ((l,'val):vals) sObjName) |]
-      else [| lookup_m (u lbl) $doc >>= \val ->
-              $(gen_fromBSON conName ls doc ((l,'val):vals) sObjName) |]
+      then [| lookup_id $doc >>= \v ->
+              $(gen_fromBSON conName ls doc ((l,'v):vals) sObjName) |]
+      else [| lookup_m (u lbl) $doc >>= \v ->
+              $(gen_fromBSON conName ls doc ((l,'v):vals) sObjName) |]
 
 -- | Given name of type, generate instance for BSON's @Val@ class.
 gen_ValInstance :: Name -> Q Dec
@@ -257,6 +255,8 @@ genSelectable' conName (n,_,t) = do
   --
   return [dataType, selInstance]
     where cap (c:cs) = toUpper c : cs
-          is_id (ConT n) = (n == ''SObjId)
+          cap x = x
+          is_id (ConT c) = (c == ''SObjId)
+          is_id _        = error "Invalid usage of is_id_, expecting ConT"
 
 

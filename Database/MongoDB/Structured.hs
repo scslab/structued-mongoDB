@@ -35,6 +35,7 @@ isNoSObjId = (==) noSObjId
 
 unSObjId :: SObjId -> ObjectId
 unSObjId (SObjId (Just x)) = x
+unSObjId _ = error "invalid use"
 
 toSObjId :: ObjectId -> SObjId
 toSObjId = SObjId . Just
