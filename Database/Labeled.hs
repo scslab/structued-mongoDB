@@ -119,7 +119,7 @@ data User = User { userId       :: Int
 
 
 instance RowPolicy User where
-  rowPolicy u =  newDC (userName u) (userName u)
+  rowPolicy u =  newDC ((userName u) .\/. "admin") (userName u)
 
 data UserPassword = UserPassword
 

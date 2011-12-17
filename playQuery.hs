@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE UndecidableInstances #-}
 import Data.UString hiding (find, sort, putStrLn)
 import Database.MongoDB.Connection
 import Data.Maybe (fromJust)
@@ -16,6 +17,7 @@ import Data.Bson
 import Database.MongoDB.Structured
 import Database.MongoDB.Structured.Deriving.TH
 import Database.MongoDB.Structured.Query
+
 
 data Address = Address { addrId :: SObjId
                        , streetNr :: Int
@@ -30,6 +32,10 @@ data User = User { userId    :: SObjId
                  , addr      :: Address
                  } deriving(Show, Read, Eq, Ord, Typeable)
 $(deriveStructured ''User)
+
+--data AddrStreetNr_ = AddrStreetNr_ deriving (Eq, Show)
+--instance Selectable User AddrStreetNr_ Int where
+--  { s _ _ = u "addr.street
 
 
 insertUsers = insertMany 
@@ -64,10 +70,10 @@ insertUsers = insertMany
 run = do
    delete (select ( (.*) :: QueryExp User))
    insertUsers
-   let query = (select (FirstName .== "deian" .|| FavNr .>= 3))
+   let query = (select (Addr .! StreetNr .== 123 .|| FavNr .>= 3))
                   { limit = 2
                   , sort = [asc FirstName]
-                  , skip = 1 }
+                  , skip = 0 }
    liftIO $ print query
    users <- find query >>= rest
    liftIO $ printFunc users

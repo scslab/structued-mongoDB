@@ -9,6 +9,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Database.MongoDB.Structured.Query (
                                           -- * Insert
                                            insert, insert_
@@ -33,7 +34,9 @@ module Database.MongoDB.Structured.Query (
                                          -- * Structured selections/queries
                                          , StructuredSelection
                                          , StructuredSelect(select)
-                                         , Selectable(..), QueryExp
+                                         , Selectable(..)
+                                         , (.!)
+                                         , QueryExp
                                          , (.*)
                                          , (.==), (./=), (.<), (.<=), (.>), (.>=)
                                          , (.&&), (.||), not_
@@ -53,6 +56,7 @@ import Data.Bson
 import Data.List (sortBy, groupBy)
 import Data.Functor
 import Data.Word
+import Data.CompactString.UTF8 (intercalate)
 import Control.Monad
 import Control.Monad.MVar
 import Control.Monad.IO.Class
@@ -234,9 +238,24 @@ unStructuredQuery sq = M.Query [] -- options
                                (expToOrder $ sort sq) -- sort
                                False 0 []
 
+-- | Class defining a selectable type. Type 'a' corresponds to the
+-- record type, 'f' corresponds to the field or facet, and 't'
+-- corresponds to the field/facet type.
 class Val t => Selectable a f t | f -> a, f -> t where
   -- | Given facet, return the BSON field name
   s :: f -> t -> Label
+
+-- | Nested fields (used for extracting the names of fields in a
+-- nested record). 
+data Nested f f' = Nested Label
+
+-- | Combining two field names to create a 'Nested' type.
+(.!) :: (Selectable r f t, Selectable t f' t') => f -> f' -> Nested f f'
+(.!) f f' = Nested $ intercalate (u ".") [(s f undefined), (s f' undefined)]
+
+instance (Selectable r f t, Selectable t f' t') =>
+          Selectable r (Nested f f') t' where
+  s (Nested l) _ = l
 
 -- | A query expression.
 data QueryExp a = StarExp
@@ -247,6 +266,7 @@ data QueryExp a = StarExp
                 | NotExp  (QueryExp a)
                 deriving (Eq, Show)
 
+infix   9 .! 
 infix   4 .==, ./=, .<, .<=, .>, .>=
 infixr  3 .&&
 infixr  2 .||
