@@ -31,7 +31,6 @@ import Database.MongoDB.Structured.Query
 import Database.MongoDB.Structured
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax
-import Control.Monad
 --import Database.MongoDB.Query (Collection)
 import Data.Char (toUpper)
 import Data.Bson
