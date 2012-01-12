@@ -1,5 +1,5 @@
-Name:           mongoSDB
-Version:        0.0
+Name:           structured-mongoDB
+Version:        0.1
 build-type:     Simple
 License:        GPL
 License-File:   LICENSE
@@ -11,7 +11,8 @@ Category:       Database
 Cabal-Version:  >= 1.6
 
 Extra-source-files:
-    Examples/playQuery.hs
+    examples/simple.hs
+    examples/mongoExample.hs
 
 Description:
         This module exports a structured interface to MongoDB.
@@ -33,5 +34,6 @@ Library
 
   Exposed-modules:
     Database.MongoDB.Structured
+    Database.MongoDB.Structured.Types
     Database.MongoDB.Structured.Query
     Database.MongoDB.Structured.Deriving.TH

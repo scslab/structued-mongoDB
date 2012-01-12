@@ -1,9 +1,6 @@
-{-|
-
-  This module exports several classes and combinators that operated on
+{-| This module exports several classes and combinators that operated on
   'Structured' types. Specifically, we provide the structured versions
-  of @mongoDB@'s combinators, including structured query creation.
-
+  of @mongoDB@''s combinators, including structured query creation.
 -}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -46,11 +43,28 @@ module Database.MongoDB.Structured.Query (
                                          , nextBatch, next, nextN, rest
                                          -- * Rexports
                                          , module Database.MongoDB.Query
+                                         , Value
                                          ) where
 
 import qualified Database.MongoDB.Query as M
-import Database.MongoDB.Query (Action, access, master)
-import Database.MongoDB.Structured
+import Database.MongoDB.Query (Action
+                              , access
+                              , Failure(..)
+                              , ErrorCode
+                              , AccessMode(..)
+                              , GetLastError
+                              , master
+                              , slaveOk
+                              , accessMode
+                              , MonadDB(..)
+                              , Database
+                              , allDatabases
+                              , useDb
+                              , thisDatabase
+                              , Username
+                              , Password
+                              , auth)
+import Database.MongoDB.Structured.Types
 import Database.MongoDB.Internal.Util
 import Data.Bson
 import Data.List (sortBy, groupBy)
@@ -190,9 +204,11 @@ rest :: (Structured a, MonadControlIO m, Functor m)
      => StructuredCursor -> Action m [Maybe a]
 rest c = (map fromBSON) <$> M.rest (unStructuredCursor c)
 
+-- | Close the cursor.
 closeCursor :: MonadControlIO m => StructuredCursor -> Action m ()
 closeCursor = M.closeCursor . unStructuredCursor
 
+-- | Check if the cursor is closed.
 isCursorClosed :: MonadIO m => StructuredCursor -> Action m Bool
 isCursorClosed = M.isCursorClosed . unStructuredCursor
 
@@ -209,11 +225,17 @@ newtype StructuredSelection =
 
 -- | Wrapper for @mongoDB@'s @Query@ type.
 data StructuredQuery = StructuredQuery
-                            { selection :: StructuredSelection
-                            , skip :: Word32
-                            , limit :: Word32
-                            , sort :: [OrderExp]
-                            }
+                        { selection :: StructuredSelection
+                        -- ^ Actual query.
+                        , skip      :: Word32 
+                        -- ^ Number of matching objects to skip
+                        -- (default: 0).
+                        , limit     :: Word32
+                        -- ^ Maximum number of objects to return
+                        -- (default: 0, no limit).
+                        , sort      :: [OrderExp]
+                        -- ^ Sortresult by this order.
+                        }
   deriving(Eq, Show)
 
 
@@ -342,7 +364,7 @@ asc f = Asc (s f undefined)
 desc :: Selectable a f t => f -> OrderExp
 desc f = Desc (s f undefined)
 
--- | Convert a list of @OrderExp] to a @mongoDB@ @Order@
+-- | Convert a list of @OrderExp@ to a @mongoDB@ @Order@
 expToOrder :: [OrderExp] -> M.Order
 expToOrder exps = map _expToLabel exps
   where _expToLabel (Desc fieldName) = fieldName := val (-1 :: Int)

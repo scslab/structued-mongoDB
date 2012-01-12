@@ -1,41 +1,122 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE DeriveDataTypeable #-}
--- | This module exports a 'Structued' type class which can be used to
--- convert from Haskel \"record types\" to @BSON@ objects and vice versa.
--- Though users may provide their own definitions for record types, we
--- provide a Template Haskell function that can be used to
--- automatically do this. See "Database.MongoDB.Structured.Deriving.TH".
+-- | This module exports a /structued/ interface to MongoDB.
+-- Specifically, Haskell record types are used (in place of BSON)
+-- to represent documents which can be inserted and retrieved from
+-- a MongoDB. Data types corresponding to fields of a document
+-- are used in forming well-typed queries, as opposed to strings.
+-- This module re-exports the "Database.MongoDB.Structured.Types"
+-- module, which exports a 'Structured' type class --- this class is
+-- used to convert Haskell record types to and from BSON documents.
+-- The module "Database.MongoDB.Structured.Query" exports an
+-- interface similar to @Database.MongoDB.Query@ which can be used to
+-- insert, query, update, delete, etc. record types from a Mongo DB.
+-- 
+-- Though users may provide their own instances for 'Structured'
+-- (and 'Selectable', used in composing well-typed queries), we
+-- provide a Template Haskell function ('deriveStructured')
+-- that can be used to automatically do this. See
+-- "Database.MongoDB.Structured.Deriving.TH".
 --
--- A record type is expected to have an \"_id\" of type 'SObjId',
--- which is set when performing a query.
+-- The example below shows how to use the structued MongoDB interface:
 --
-module Database.MongoDB.Structured ( Structured(..)
-                                   , SObjId(..)
-                                   , noSObjId, isNoSObjId
-                                   , toSObjId, unSObjId
+-- >    {-# LANGUAGE TemplateHaskell #-}
+-- >    {-# LANGUAGE TypeSynonymInstances #-}
+-- >    {-# LANGUAGE MultiParamTypeClasses #-}
+-- >    {-# LANGUAGE FlexibleInstances #-}
+-- >    {-# LANGUAGE OverloadedStrings #-}
+-- >    {-# LANGUAGE DeriveDataTypeable #-}
+-- >    import Database.MongoDB.Structured
+-- >    import Database.MongoDB.Structured.Deriving.TH
+-- >    import Control.Monad.Trans (liftIO)
+-- >    import Data.Typeable
+-- >    import Control.Monad (mapM_)
+-- >    import Control.Monad.IO.Class
+-- >    import Data.Bson (Value)
+-- >    import Data.Maybe (isJust, fromJust)
+-- >
+-- >    data Address = Address { addrId :: SObjId
+-- >                           , city   :: String
+-- >                           , state  :: String
+-- >                           } deriving (Show, Eq, Typeable)
+-- >    $(deriveStructured ''Address)
+-- >
+-- >    data Team = Team { teamId :: SObjId
+-- >                     , name   :: String
+-- >                     , home   :: Address
+-- >                     , league :: String
+-- >                     } deriving (Show, Eq, Typeable)
+-- >    $(deriveStructured ''Team)
+-- >
+-- >    main = do
+-- >       pipe <- runIOE $ connect (host "127.0.0.1")
+-- >       e <- access pipe master "baseball" run
+-- >       close pipe
+-- >       print e
+-- >
+-- >    run = do
+-- >       clearTeams
+-- >       insertTeams
+-- >       allTeams >>= printDocs "All Teams"
+-- >       nationalLeagueTeams >>= printDocs "National League Teams"
+-- >       newYorkTeams >>= printDocs "New York Teams"
+-- >
+-- >    -- Delete all teams:
+-- >    clearTeams :: Action IO ()
+-- >    clearTeams = delete (select ( (.*) :: QueryExp Team))
+-- >
+-- >    insertTeams :: Action IO [Value]
+-- >    insertTeams = insertMany [
+-- >       Team { teamId = noSObjId
+-- >            , name   = "Yankees"
+-- >            , home   = Address { addrId = noSObjId
+-- >                               , city  = "New York"
+-- >                               , state = "NY"
+-- >                               }
+-- >            , league = "American"}
+-- >      , Team { teamId = noSObjId
+-- >             , name   = "Mets"
+-- >             , home   = Address { addrId = noSObjId
+-- >                                , city  = "New York"
+-- >                                , state = "NY"
+-- >                                }
+-- >             , league = "National"}
+-- >      , Team { teamId = noSObjId
+-- >             , name   = "Phillies"
+-- >             , home   = Address { addrId = noSObjId
+-- >                                , city  = "Philadelphia"
+-- >                                , state = "PA"
+-- >                                }
+-- >             , league = "National"}
+-- >      , Team { teamId = noSObjId
+-- >             , name   = "Red Sox"
+-- >             , home   = Address { addrId = noSObjId
+-- >                                , city  = "Boston"
+-- >                                , state = "MA"
+-- >                                }
+-- >             , league = "National"}
+-- >      ]
+-- >
+-- >    allTeams :: Action IO [Maybe Team]
+-- >    allTeams = let query = (select ((.*) :: QueryExp Team))
+-- >                                { sort = [asc (Home .! City)]}
+-- >               in find query >>= rest
+-- >               
+-- >    nationalLeagueTeams :: Action IO [Maybe Team]
+-- >    nationalLeagueTeams = rest =<< find (select (League .== "National"))
+-- >
+-- >    newYorkTeams :: Action IO [Maybe Team]
+-- >    newYorkTeams = rest =<< find (select (Home .! State .== "NY"))
+-- >
+-- >    printDocs :: MonadIO m => String -> [Maybe Team] -> m ()
+-- >    printDocs title teams' = liftIO $ do
+-- >      let teams = (map fromJust) . filter (isJust) $ teams'
+-- >      putStrLn title 
+-- >      mapM_ (putStrLn . show) teams
+--
+module Database.MongoDB.Structured ( module Database.MongoDB.Structured.Types
+                                   , module Database.MongoDB.Connection
+                                   , module Database.MongoDB.Structured.Query
                                    ) where
 
-import Data.Bson
-import Database.MongoDB.Query (Collection)
-import Data.Typeable
-
-class Structured a where
-  collection :: a -> Collection     -- ^ Collection name is then name of type
-  toBSON     :: a -> Document       -- ^ Convert record to a BSON object
-  fromBSON   :: Document -> Maybe a -- ^ Convert BSON object to record
-
-newtype SObjId = SObjId (Maybe ObjectId)
-   deriving(Show, Read, Eq, Ord, Typeable, Val)
-
-noSObjId :: SObjId
-noSObjId = SObjId Nothing
-
-isNoSObjId :: SObjId -> Bool
-isNoSObjId = (==) noSObjId
-
-unSObjId :: SObjId -> ObjectId
-unSObjId (SObjId (Just x)) = x
-unSObjId _ = error "invalid use"
-
-toSObjId :: ObjectId -> SObjId
-toSObjId = SObjId . Just
+import Database.MongoDB.Structured.Types
+import Database.MongoDB.Connection
+import Database.MongoDB.Structured.Query

@@ -4,7 +4,7 @@
 -- which can be used to automatically generate an instance of such
 -- types for the 'Structured' and BSON's @Val@ classes.
 --
--- Example use:
+-- For instance:
 --
 -- > data User = User { userId :: Int
 -- >                  , userFirstName :: String
@@ -13,15 +13,35 @@
 -- >             deriving(Show, Read, Eq, Ord, Typeable)
 -- > $(deriveStructured ''User)
 -- > 
--- > data Profile = Profile { profileId       :: Int
--- >                        , profileName     :: String
--- >                        , profileUser     :: User
--- >                        , profileKeywords :: [Maybe String]
--- >                        }
--- >               deriving(Show, Read, Eq, Ord, Typeable)
--- > $(deriveStructured ''Profile)
 --
+-- 'deriveStrctured' used used to create the following instance of 'Structured':
 --
+-- > instance Structured User where
+-- >   toBSON x = [ (u "_id")           := val (userId x)
+-- >              , (u "userFirstName") := val (userFirstName x)
+-- >              , (u "userLastName")  := val (userLastName x)
+-- >              ]
+-- >   
+-- >   fromBSON doc = lookup (u "_id")             doc >>= \val_1 ->
+-- >                  lookup (u "userFirstName")   doc >>= \val_2 ->
+-- >                  lookup (u "userLastName")    doc >>= \val_3 ->
+-- >                  return User { userId        = val_1
+-- >                              , userFirstName = val_2
+-- >                              , userLastname  = val_3
+-- >                              }
+-- 
+-- To allow for structured and well-typed queies, it also generates
+-- types corresponding to each field (which are made an instance of
+-- 'Selectable'). Specifically, for the above data type, it creates:
+-- 
+-- >  data UserId = UserId deriving (Show, Eq)
+-- >  instance Selectable User UserId SObjId where s _ _ = "_id"
+-- >  
+-- >  data FirstName = FirstName deriving (Show, Eq)
+-- >  instance Selectable User FirstName String where s _ _ = "firstName"
+-- >  
+-- >  data LastName = LastName deriving (Show, Eq)
+-- >  instance Selectable User LastName String where s _ _ = "lastName"
 --
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -31,17 +51,11 @@ import Database.MongoDB.Structured.Query
 import Database.MongoDB.Structured
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax
---import Database.MongoDB.Query (Collection)
 import Data.Char (toUpper)
 import Data.Bson
 import qualified Data.Bson as BSON
 import Data.Functor ((<$>))
 import Data.List (isPrefixOf)
-
---
---import Debug.Trace
---debug x = trace x (return ())
---
 
 data T1 = T1
 data T2 = T2
@@ -225,6 +239,24 @@ gen_ValInstance t = do
 
 -- | Given name of type, and fields, generate new type corrsponding to
 -- each field and make them instances of @Selectable@.
+-- Suppose we have
+--
+-- >  data User = User { userId        :: SObjId
+-- >                   , userFirstName :: String
+-- >                   , userLastName  :: String
+-- >                   }
+--
+-- This fucntion generates the following types and instances:
+--
+-- >  data UserId = UserId deriving (Show, Eq)
+-- >  instance Selectable User UserId SObjId where s _ _ = "_id"
+-- >  
+-- >  data FirstName = FirstName deriving (Show, Eq)
+-- >  instance Selectable User FirstName String where s _ _ = "firstName"
+-- >  
+-- >  data LastName = LastName deriving (Show, Eq)
+-- >  instance Selectable User LastName String where s _ _ = "lastName"
+-- 
 genSelectable :: Name -> [VarStrictType] -> Q [Dec]
 genSelectable conName vs = concat <$> (mapM (genSelectable' conName) vs)
 
