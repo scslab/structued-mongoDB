@@ -10,7 +10,6 @@ import Control.Monad.Trans (liftIO)
 import Data.Typeable
 import Control.Monad (mapM_)
 import Control.Monad.IO.Class
-import Data.Bson (Value)
 import Data.Maybe (isJust, fromJust)
 
 data Address = Address { addrId :: SObjId

@@ -15,7 +15,11 @@ Extra-source-files:
     examples/mongoExample.hs
 
 Description:
-        This module exports a structured interface to MongoDB.
+        This module exports a structured type-safe interface to MongoDB.
+
+Source-repository head
+  Type:     git
+  Location: http://www.scs.stanford.edu/~deian/structured-mongoDB.git
 
 Library
   Build-Depends: base >= 4 && < 5,
