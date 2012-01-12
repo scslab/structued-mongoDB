@@ -34,7 +34,7 @@ Library
                  compact-string-fix >= 0.3.2 && < 0.4,
                  template-haskell
 
-  ghc-options: -Wall -Werror -fno-warn-orphans
+  ghc-options: -Wall -fno-warn-orphans
 
   Exposed-modules:
     Database.MongoDB.Structured
