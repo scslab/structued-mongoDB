@@ -1,3 +1,7 @@
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 702
+{-# LANGUAGE Trustworthy #-}
+#endif
 {-| This module exports several classes and combinators that operated on
   'Structured' types. Specifically, we provide the structured versions
   of @mongoDB@''s combinators, including structured query creation.

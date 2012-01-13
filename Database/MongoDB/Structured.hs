@@ -1,3 +1,7 @@
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 702
+{-# LANGUAGE Trustworthy #-}
+#endif
 -- | This module exports a /structued/ interface to MongoDB.
 -- Specifically, Haskell record types are used (in place of BSON)
 -- to represent documents which can be inserted and retrieved from

@@ -1,5 +1,9 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+#if __GLASGOW_HASKELL__ >= 702
+{-# LANGUAGE Trustworthy #-}
+#endif
 -- | This module exports a 'Structued' type class which can be used to
 -- convert Haskel \"record types\" to @BSON@ objects and vice versa.
 -- As a Mongo document has an \"_id\" field, we impose the requirement
