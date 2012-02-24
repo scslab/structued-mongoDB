@@ -1,5 +1,5 @@
 Name:           structured-mongoDB
-Version:        0.1
+Version:        0.2
 build-type:     Simple
 License:        GPL
 License-File:   LICENSE
@@ -23,13 +23,15 @@ Source-repository head
 
 Library
   Build-Depends: base >= 4 && < 5,
+                 transformers-base >= 0.4.1 && < 0.5,
+                 monad-control >= 0.3.1 && < 0.4,
                  array >= 0.2 && < 1,
                  bytestring >= 0.9 && < 1,
                  containers >= 0.2 && < 1,
                  mtl >= 1.1.0.2 && < 3,
                  transformers >= 0.2.2 && < 0.3,
                  old-time >= 1 && < 2,
-                 mongoDB >= 1.1.1 && <2,
+                 mongoDB >= 1.2.0 && <2,
                  bson >= 0.1.6 && <0.2,
                  compact-string-fix >= 0.3.2 && < 0.4,
                  template-haskell
