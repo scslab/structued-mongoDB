@@ -72,6 +72,7 @@ import Database.MongoDB.Query (Action
 import Database.MongoDB.Structured.Types
 import Database.MongoDB.Internal.Util
 import Data.Bson
+import Data.Maybe (fromJust)
 import Data.List (sortBy, groupBy)
 import Data.Functor
 import Data.Word
@@ -167,10 +168,11 @@ findOne q = do
   res <- M.findOne . unStructuredQuery $ q
   return $ res >>= fromBSON
 
--- | Same as 'findOne' but throws 'DocNotFound' if none match.
+-- | Same as 'findOne' but throws 'DocNotFound' if none match. Error
+-- is thrown if the document cannot e transformed.
 fetch :: (MonadIO m, Functor m, Structured a)
-     => StructuredQuery -> Action m (Maybe a)
-fetch q = fromBSON <$> (M.fetch . unStructuredQuery $ q)
+     => StructuredQuery -> Action m a
+fetch q = (fromJust . fromBSON) <$> (M.fetch . unStructuredQuery $ q)
 
 -- | Count number of documents satisfying query.
 count :: (MonadIO' m) => StructuredQuery -> Action m Int
