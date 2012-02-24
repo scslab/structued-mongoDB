@@ -9,6 +9,7 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Database.MongoDB.Structured.Query (
@@ -71,13 +72,15 @@ import Database.MongoDB.Query (Action
 import Database.MongoDB.Structured.Types
 import Database.MongoDB.Internal.Util
 import Data.Bson
+import Data.Maybe (fromJust)
 import Data.List (sortBy, groupBy)
 import Data.Functor
 import Data.Word
 import Data.CompactString.UTF8 (intercalate)
 import Control.Monad
-import Control.Monad.MVar
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Control
+import Control.Monad.Base
 
 
 --
@@ -154,7 +157,7 @@ deleteOne = M.deleteOne . unStructuredSelection
 --
 
 -- | Find documents satisfying query
-find :: (MonadControlIO m, Functor m)
+find :: (Functor m, MonadIO m, MonadBaseControl IO m)
      => StructuredQuery -> Action m StructuredCursor
 find q = StructuredCursor <$> (M.find . unStructuredQuery $ q)
 
@@ -165,10 +168,11 @@ findOne q = do
   res <- M.findOne . unStructuredQuery $ q
   return $ res >>= fromBSON
 
--- | Same as 'findOne' but throws 'DocNotFound' if none match.
+-- | Same as 'findOne' but throws 'DocNotFound' if none match. Error
+-- is thrown if the document cannot e transformed.
 fetch :: (MonadIO m, Functor m, Structured a)
-     => StructuredQuery -> Action m (Maybe a)
-fetch q = fromBSON <$> (M.fetch . unStructuredQuery $ q)
+     => StructuredQuery -> Action m a
+fetch q = (fromJust . fromBSON) <$> (M.fetch . unStructuredQuery $ q)
 
 -- | Count number of documents satisfying query.
 count :: (MonadIO' m) => StructuredQuery -> Action m Int
@@ -183,13 +187,13 @@ count = M.count . unStructuredQuery
 newtype StructuredCursor = StructuredCursor { unStructuredCursor :: M.Cursor }
 
 -- | Return next batch of structured documents.
-nextBatch :: (Structured a, MonadControlIO m, Functor m)
+nextBatch :: (Structured a, Functor m, MonadIO m, MonadBaseControl IO m)
           => StructuredCursor -> Action m [Maybe a]
 nextBatch c = (map fromBSON) <$> M.nextBatch (unStructuredCursor c)
 
 -- | Return next structured document. If failed return 'Left',
 -- otherwise 'Right' of the deserialized result.
-next :: (Structured a, MonadControlIO m)
+next :: (Structured a, MonadIO m, MonadBaseControl IO m)
      => StructuredCursor -> Action m (Either () (Maybe a))
 next c = do
     res <- M.next (unStructuredCursor c)
@@ -198,22 +202,22 @@ next c = do
       Just r  -> return (Right $ fromBSON r)
 
 -- | Return up to next @N@ documents.
-nextN :: (Structured a, MonadControlIO m, Functor m)
+nextN :: (Structured a, Functor m, MonadIO m, MonadBaseControl IO m)
       => Int -> StructuredCursor -> Action m [Maybe a]
 nextN n c = (map fromBSON) <$> M.nextN n (unStructuredCursor c)
 
 
 -- | Return the remaining documents in query result.
-rest :: (Structured a, MonadControlIO m, Functor m)
+rest :: (Structured a, Functor m, MonadIO m, MonadBaseControl IO m) 
      => StructuredCursor -> Action m [Maybe a]
 rest c = (map fromBSON) <$> M.rest (unStructuredCursor c)
 
 -- | Close the cursor.
-closeCursor :: MonadControlIO m => StructuredCursor -> Action m ()
+closeCursor :: (MonadIO m, MonadBaseControl IO m) => StructuredCursor -> Action m ()
 closeCursor = M.closeCursor . unStructuredCursor
 
 -- | Check if the cursor is closed.
-isCursorClosed :: MonadIO m => StructuredCursor -> Action m Bool
+isCursorClosed :: (MonadIO m, MonadBase IO m) => StructuredCursor -> Action m Bool
 isCursorClosed = M.isCursorClosed . unStructuredCursor
 
 
