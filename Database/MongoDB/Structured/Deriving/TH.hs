@@ -267,8 +267,7 @@ genSelectable' conName (n,_,t) = do
   let bn = mkName . cap $ nameBase n
       sName = mkName "s"
   -- New type for field:
-  [DataD _ _ _ _ derivs] <- [d| data Constr = Constr deriving (Eq, Show) |]
-  let dataType = DataD [] bn [] [NormalC bn []] derivs
+  let dataType = DataD [] bn [] [NormalC bn []] [''Show, ''Eq]
   -- Instance of Selectable:
   [InstanceD selCtx (AppT (AppT (AppT selT _) _) _)
                     [FunD _ [Clause pats (NormalB (AppE varE_u _)) []]]]
@@ -289,5 +288,4 @@ genSelectable' conName (n,_,t) = do
           cap x = x
           is_id (ConT c) = (c == ''SObjId)
           is_id _        = error "Invalid usage of is_id_, expecting ConT"
-
 
